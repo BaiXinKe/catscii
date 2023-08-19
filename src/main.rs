@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use axum::{
     body::BoxBody,
+    extract::State,
     http::{header, HeaderMap},
     response::{IntoResponse, Response},
     routing::get,
@@ -15,9 +16,12 @@ use opentelemetry::{
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::{info, Level};
-use tracing_subscriber::{
-    filter::Targets, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
-};
+use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
+
+#[derive(Clone)]
+struct ServerState {
+    client: reqwest::Client,
+}
 
 #[tokio::main]
 async fn main() {
@@ -46,7 +50,11 @@ async fn main() {
     .install()
     .unwrap();
 
-    let app = Router::new().route("/", get(root_get));
+    let state = ServerState {
+        client: Default::default(),
+    };
+
+    let app = Router::new().route("/", get(root_get)).with_state(state);
 
     let addr = "0.0.0.0:8904".parse().unwrap();
     info!("Listening on {addr}");
@@ -56,7 +64,7 @@ async fn main() {
         .unwrap();
 }
 
-async fn root_get(headers: HeaderMap) -> Response<BoxBody> {
+async fn root_get(headers: HeaderMap, State(state): State<ServerState>) -> Response<BoxBody> {
     let tracer = global::tracer("");
     let mut span = tracer.start("root_get");
     span.set_attribute(KeyValue::new(
@@ -67,15 +75,15 @@ async fn root_get(headers: HeaderMap) -> Response<BoxBody> {
             .unwrap_or_default(),
     ));
 
-    root_get_inner()
+    root_get_inner(state)
         .with_context(Context::current_with_span(span))
         .await
 }
 
-async fn root_get_inner() -> Response<BoxBody> {
+async fn root_get_inner(state: ServerState) -> Response<BoxBody> {
     let tracer = global::tracer("");
 
-    match get_cat_ascii_art()
+    match get_cat_ascii_art(&state.client)
         .with_context(Context::current_with_span(
             tracer.start("get_cat_ascii_art"),
         ))
@@ -98,18 +106,16 @@ async fn root_get_inner() -> Response<BoxBody> {
     }
 }
 
-async fn get_cat_ascii_art() -> color_eyre::Result<String> {
+async fn get_cat_ascii_art(client: &reqwest::Client) -> color_eyre::Result<String> {
     let tracer = global::tracer("");
 
-    let client = reqwest::Client::new();
-
-    let image_url = get_cat_image_url(&client)
+    let image_url = get_cat_image_url(client)
         .with_context(Context::current_with_span(
             tracer.start("get_cat_image_url"),
         ))
         .await?;
 
-    let image_bytes = dowload_file(&client, &image_url)
+    let image_bytes = dowload_file(client, &image_url)
         .with_context(Context::current_with_span(tracer.start("download_file")))
         .await?;
 
