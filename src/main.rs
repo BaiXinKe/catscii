@@ -15,7 +15,7 @@ use opentelemetry::{
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Clone)]
@@ -56,10 +56,16 @@ async fn main() {
 
     let app = Router::new().route("/", get(root_get)).with_state(state);
 
+    let quit_sig = async {
+        _ = tokio::signal::ctrl_c().await;
+        warn!("Initiating graceful shutdown");
+    };
+
     let addr = "0.0.0.0:8904".parse().unwrap();
     info!("Listening on {addr}");
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
+        .with_graceful_shutdown(quit_sig)
         .await
         .unwrap();
 }
