@@ -26,6 +26,14 @@ async fn main() {
         .with(filter)
         .init();
 
+    let _guard = sentry::init((
+        std::env::var("SENTRY_DSN").expect("$SENTRY_DSN must be set"),
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            ..Default::default()
+        },
+    ));
+
     let app = Router::new().route("/", get(root_get));
 
     let addr = "0.0.0.0:8904".parse().unwrap();
